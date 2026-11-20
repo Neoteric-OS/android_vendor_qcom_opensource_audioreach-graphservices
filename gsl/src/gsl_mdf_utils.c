@@ -315,7 +315,7 @@ int32_t gsl_mdf_utils_get_supported_ss_info_from_acdb(void)
 					sizeof(struct per_group_shmem_info_t) +
 					p->num_satellite_procs * sizeof(uint32_t));
 			}
-			acdb_rsp.buf_size -= ((void *)p - (void *)tmp_pos);
+			acdb_rsp.buf_size -= ((uint8_t *)p - (uint8_t *)tmp_pos);
 			tmp_p = (uint32_t *)p;
 		} else if (*tmp_p == PARAM_ID_PROC_DOMAIN_INFO) {
 			tmp_pos = tmp_p;
@@ -336,7 +336,7 @@ int32_t gsl_mdf_utils_get_supported_ss_info_from_acdb(void)
 				_gsl_glb_mdf_info.pd_info[i].proc_type = pt->proc_type;
 				++pt;
 			}
-			acdb_rsp.buf_size -= ((void *)pt - (void *)tmp_pos);
+			acdb_rsp.buf_size -= ((uint8_t *)pt - (uint8_t *)tmp_pos);
 			tmp_p = (uint32_t *)pt;
 		} else {
 			GSL_ERR("got incorrect PID from ACDB %d",

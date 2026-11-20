@@ -83,7 +83,7 @@ int32_t gsl_spf_timeouts_get_timeouts_from_acdb(void)
 			SET_TIMEOUT_IF_VALID(sv->spf_read_write_timeout,
 								GSL_SPF_READ_WRITE_TIMEOUT_MS_DEFAULT, GSL_SPF_READ_WRITE_TIMEOUT_MS);
 			++sv;
-			acdb_rsp.buf_size -= ((void *)sv - (void *)tmp_pos);
+			acdb_rsp.buf_size -= ((uint8_t *)sv - (uint8_t *)tmp_pos);
 			tmp_p = (uint32_t *)sv;
 		} else {
 			GSL_ERR("got incorrect PID from ACDB %d", *((uint32_t *)acdb_rsp.buf));
