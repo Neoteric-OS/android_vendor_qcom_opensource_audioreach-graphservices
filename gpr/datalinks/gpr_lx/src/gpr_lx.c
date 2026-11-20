@@ -3,7 +3,7 @@
  *
  * This file has implementation platform wrapper for the GPR datalink layer
  *
- * Copyright (c) Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  * SPDX-License-Identifier: BSD-3-Clause
  */
 #define LOG_TAG "gpr_dl_lx"
@@ -167,13 +167,11 @@ uint32_t put_buffer(gpr_dl_lx_port_t *dl_lx_port, void *buf)
 
     pthread_mutex_lock(&dl_lx_port->buff_list_lock);
     list_for_each_safe(item, temp_node, &dl_lx_port->buff_list) {
-        if (item != NULL) {
-            buffer_node = node_to_item(item, gpr_dl_lx_buf_t, node);
-            if (buffer_node && buffer_node->buffer == buf) {
-                AR_LOG_ERR(LOG_TAG,"%s:%d buffer already put error case", __func__, __LINE__);
-                pthread_mutex_unlock(&dl_lx_port->buff_list_lock);
-                return AR_EALREADY;
-            }
+        buffer_node = node_to_item(item, gpr_dl_lx_buf_t, node);
+        if (buffer_node && buffer_node->buffer == buf) {
+            AR_LOG_ERR(LOG_TAG,"%s:%d buffer already put error case", __func__, __LINE__);
+            pthread_mutex_unlock(&dl_lx_port->buff_list_lock);
+            return AR_EALREADY;
         }
     }
     buffer_node = (gpr_dl_lx_buf_t *)malloc(sizeof(gpr_dl_lx_buf_t));
@@ -231,8 +229,10 @@ void *receiver_thread_loop(void *priv_data)
            /**
             * Continue polling if poll error is EINTR
             */
-            if (error == EINTR)
+            if (error == EINTR) {
+                AR_LOG_INFO(LOG_TAG,"%s:%d Poll interrupted due to EINTR", __func__, __LINE__);
                 continue;
+            }
 
             AR_LOG_ERR(LOG_TAG,"Poll failed error %s", strerror(error));
             break;
@@ -276,6 +276,7 @@ void *receiver_thread_loop(void *priv_data)
             AR_LOG_INFO(LOG_TAG,"%s:%d Poll errored", __func__, __LINE__);
             continue;
         } else if (pfd[1].revents & (POLLIN|POLLPRI)) {
+            AR_LOG_ERR(LOG_TAG,"%s:%d unexpected poll!", __func__, __LINE__);
             break;
         }
     }
@@ -362,6 +363,7 @@ static gpr_dl_lx_port_t * gpr_dl_lx_local_init(uint32_t src_domain_id, uint32_t 
         free(dl_lx_port);
         return NULL;
     }
+    pthread_setname_np(dl_lx_port->receiver_thread, "GPR_Receiver");
     return dl_lx_port;
 }
 

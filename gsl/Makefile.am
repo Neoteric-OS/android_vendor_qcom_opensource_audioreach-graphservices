@@ -30,13 +30,16 @@ gsl_sources = ./inc/gsl_common.h \
               ./inc/gsl_subgraph_driver_props_generic.h \
               ./api/gsl_subgraph_driver_props.h \
               ./inc/gsl_mdf_utils.h \
+              ./inc/gsl_spf_timeout.h \
               ./inc/gsl_global_persist_cal.h \
               ./dls_client_api/gsl_dls_client_intf.h \
-              ./inc/gsl_dls_client.h
+              ./inc/gsl_dls_client.h \
+              ./inc/gsl_cshm_mgr.h
 
 gsl_c_sources = ./src/gsl_graph.c \
                 ./src/gsl_main.c \
                 ./src/gsl_mdf_utils.c \
+                ./src/gsl_spf_timeout.c \
                 ./src/gsl_shmem_mgr.c \
                 ./src/gsl_subgraph.c \
                 ./src/gsl_subgraph_pool.c \
@@ -49,7 +52,8 @@ gsl_c_sources = ./src/gsl_graph.c \
                 ./src/gsl_hw_rsc_mgr.c \
                 ./src/gsl_msg_builder.c \
                 ./src/gsl_global_persist_cal.c \
-                ./src/gsl_dls_client.c
+                ./src/gsl_dls_client.c \
+                ./src/gsl_cshm_mgr.c
 
 lib_includedir = $(includedir)
 lib_include_HEADERS = $(gsl_sources)
@@ -59,7 +63,11 @@ libar_gsl_la_CC = @CC@
 libar_gsl_la_LIBADD = $(top_builddir)/acdb/libar-acdb.la $(top_builddir)/ar_osal/libar-osal.la $(top_builddir)/ar_util/libar-util.la $(top_builddir)/spf/libar-spfhdrs.la $(top_builddir)/gpr/libar-gpr.la
 libar_gsl_la_SOURCES = $(gsl_c_sources)
 libar_gsl_la_CFLAGS = $(AM_CFLAGS)
-libar_gsl_la_LDFLAGS = -shared -avoid-version
+libar_gsl_la_LDFLAGS = -shared -version-number @LT_VERSION_NUMBER@
+
+if MDSP_PROC
+libar_gsl_la_CFLAGS += -DMDSP_PROC
+endif
 
 if USES_ATS_DATA_LOGGING
 libar_gsl_la_CFLAGS += -DATS_DATA_LOGGING

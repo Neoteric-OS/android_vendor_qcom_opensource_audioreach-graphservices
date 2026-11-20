@@ -7,7 +7,7 @@
  *  	 definitions will be in module_cmn_metadata.
  *
  * \copyright
- *  Copyright (c) Qualcomm Innovation Center, Inc. All rights reserved.
+ *  Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *  SPDX-License-Identifier: BSD-3-Clause
  */
 
@@ -144,7 +144,7 @@ struct metadata_header_t
     *
     *    This bit is specifically used for MDF to classify if the metadata is relevant
     *    to external client versus internally generated and propagated within SPF.
-    *    Should be set to ‘0’ always  for HLOS
+    *    Should be set to â€˜0â€™ always  for HLOS
     *
     *
     *   BIT_2_to_1 : Specifies if the Metadata is trackable.

@@ -12,7 +12,7 @@
 *    all ATS upcalls.
 *
 *  \copyright
-*      Copyright (c) Qualcomm Innovation Center, Inc. All rights reserved.
+*      Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
 *      SPDX-License-Identifier: BSD-3-Clause
 *=============================================================================
 */
@@ -301,7 +301,7 @@ int32_t TcpipCmdServer::set_connected_lock(uint8_t value)
 
     is_connected = value;
 
-    status = ar_osal_mutex_lock(connection_lock);
+    status = ar_osal_mutex_unlock(connection_lock);
     if (AR_FAILED(status))
     {
         return status;
@@ -464,12 +464,15 @@ void *TcpipCmdServer::transmit_routine(void *args)
     recieve_buffer.buffer_size = TCPIP_CMD_SERVER_RECV_BUFFER_SIZE;
     //Stores one message
     message_buffer.buffer = (char_t*)ar_heap_malloc(message_buffer.buffer_size, &heap_inf);
-    if (NULL == message_buffer.buffer)
+    if (NULL == message_buffer.buffer) {
+        ar_osal_mutex_unlock(connection_lock);
         return 0;
+    }
 
     recieve_buffer.buffer = (char_t*)ar_heap_malloc(recieve_buffer.buffer_size, &heap_inf);
     if (NULL == recieve_buffer.buffer) {
         ar_heap_free(message_buffer.buffer, &heap_inf);
+        ar_osal_mutex_unlock(connection_lock);
         return 0;
     }
 
@@ -477,6 +480,7 @@ void *TcpipCmdServer::transmit_routine(void *args)
     if (NULL == outbuf) {
         ar_heap_free(message_buffer.buffer, &heap_inf);
         ar_heap_free(recieve_buffer.buffer, &heap_inf);
+        ar_osal_mutex_unlock(connection_lock);
         return 0;
     }
     ar_mem_set(outbuf, 0, 1);
@@ -542,6 +546,7 @@ void *TcpipCmdServer::transmit_routine(void *args)
 
     ar_heap_free(message_buffer.buffer, &heap_inf);
     ar_heap_free(recieve_buffer.buffer, &heap_inf);
+    ar_heap_free(outbuf, &heap_inf);
 
     is_connected = false;
     ar_osal_mutex_unlock(connection_lock);
@@ -552,7 +557,7 @@ int32_t TcpipCmdServer::recv_message_header(char_t *msgBuf, uint32_t msgbuflen,
     char_t *recvbuf, uint32_t recvbuflen, uint32_t &msg_len)
 {
     int32_t status = AR_EOK;
-    int32_t bytes_recieved = 0;
+    int32_t bytes_received = 0;
     int32_t headerBytesRead = 0;
     char svc_id_str[ATS_SEVICE_ID_STR_LEN] = { 0 };
     uint32_t svc_cmd_id = 0;
@@ -566,9 +571,9 @@ int32_t TcpipCmdServer::recv_message_header(char_t *msgBuf, uint32_t msgbuflen,
         {
             return AR_EBADPARAM;
         }
-        status = ar_socket_recv(accept_socket, recvbuf, ATS_HEADER_LENGTH - headerBytesRead, 0, &bytes_recieved);
+        status = ar_socket_recv(accept_socket, recvbuf, ATS_HEADER_LENGTH - headerBytesRead, 0, &bytes_received);
 
-        if (bytes_recieved < 0)
+        if (bytes_received < 0)
         {
             if (AR_SOCKET_LAST_ERROR == EINTR) continue;
 
@@ -576,14 +581,14 @@ int32_t TcpipCmdServer::recv_message_header(char_t *msgBuf, uint32_t msgbuflen,
             ar_socket_close(accept_socket);
             return AR_EFAILED;
         }
-        else if (bytes_recieved == 0)
+        else if (bytes_received == 0)
         {
             TCPIP_CMD_SVR_INFO("Client shutdown socket. Closing connection...");
             ar_socket_close(accept_socket);
             return AR_ETERMINATED;
         }
 
-        TCPIP_CMD_SVR_DBG("Recieved %d bytes", bytes_recieved);
+        TCPIP_CMD_SVR_DBG("Received %d bytes", bytes_received);
 
         /* The client sends "QUIT" to signal end of connection. The server will close
          * the socket and return */
@@ -598,18 +603,18 @@ int32_t TcpipCmdServer::recv_message_header(char_t *msgBuf, uint32_t msgbuflen,
         {
             return AR_EBADPARAM;
         }
-        ar_mem_cpy(msgBuf + headerBytesRead, bytes_recieved, recvbuf, bytes_recieved);
-        headerBytesRead += bytes_recieved;
+        ar_mem_cpy(msgBuf + headerBytesRead, bytes_received, recvbuf, bytes_received);
+        headerBytesRead += bytes_received;
 
         //this determines how many bytes to expect (thus determining how many times to loop).
-        if (tcpip_cmd_server_get_ats_command_length(msgBuf, bytes_recieved, &msg_len))
+        if (tcpip_cmd_server_get_ats_command_length(msgBuf, bytes_received, &msg_len))
         {
             svc_cmd_id = 0;
             ar_mem_cpy(&svc_cmd_id, ATS_SERVICE_COMMAND_ID_LENGTH,
                 msgBuf + ATS_SERVICE_COMMAND_ID_POSITION, ATS_SERVICE_COMMAND_ID_LENGTH);
 
             ATS_SERVICE_ID_STR(svc_id_str, ATS_SEVICE_ID_STR_LEN, svc_cmd_id);
-            TCPIP_CMD_SVR_DBG("Recieved Command[%s-%d] with length %d bytes", svc_id_str, ATS_GET_COMMAND_ID(svc_cmd_id), msg_len);
+            TCPIP_CMD_SVR_DBG("Received Command[%s-%d] with length %d bytes", svc_id_str, ATS_GET_COMMAND_ID(svc_cmd_id), msg_len);
             break;
         }
     }
@@ -624,7 +629,7 @@ int32_t TcpipCmdServer::recv_message(char_t *msgBuf, uint32_t msgbuflen,
 {
     __UNREFERENCED_PARAM(recvbuflen);
     int32_t status = AR_EOK;
-    int32_t bytes_recieved = 0;
+    int32_t bytes_received = 0;
     uint32_t message_bytes_read = 0;
     uint32_t remaining_message_length = 0;
     uint32_t recv_len = 0;
@@ -659,11 +664,11 @@ int32_t TcpipCmdServer::recv_message(char_t *msgBuf, uint32_t msgbuflen,
             remaining_message_length : TCPIP_CMD_SERVER_RECV_BUFFER_SIZE;
 
         //will receive min(TCPIP_CMD_SERVER_RECV_BUFFER_SIZE, bytes left to receive to complete message)
-        bytes_recieved = recv(accept_socket, recvbuf, recv_len, 0);
+        bytes_received = recv(accept_socket, recvbuf, recv_len, 0);
 
-        if (bytes_recieved > 0)
+        if (bytes_received > 0)
         {
-            TCPIP_CMD_SVR_DBG("Recieved %d bytes", bytes_recieved);
+            TCPIP_CMD_SVR_DBG("Received %d bytes", bytes_received);
 
             if (should_write_msg)
             {
@@ -675,17 +680,17 @@ int32_t TcpipCmdServer::recv_message(char_t *msgBuf, uint32_t msgbuflen,
                     return AR_ENEEDMORE;
                 }
 
-                ar_mem_cpy(msgBuf + ATS_HEADER_LENGTH + message_bytes_read, bytes_recieved,
-                    recvbuf, bytes_recieved);
+                ar_mem_cpy(msgBuf + ATS_HEADER_LENGTH + message_bytes_read, bytes_received,
+                    recvbuf, bytes_received);
             }
 
-            message_bytes_read += bytes_recieved;
+            message_bytes_read += bytes_received;
             if (message_bytes_read == data_length)
             {
                 break;
             }
         }
-        else if (bytes_recieved <= 0)
+        else if (bytes_received <= 0)
         {
             if (AR_SOCKET_LAST_ERROR == EINTR)
             {

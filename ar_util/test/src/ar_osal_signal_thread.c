@@ -1,5 +1,5 @@
 /*
-*  Copyright (c) Qualcomm Innovation Center, Inc. All rights reserved.
+*  Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
 *  SPDX-License-Identifier: BSD-3-Clause
 */
 #include <stdio.h>
@@ -64,7 +64,7 @@ void CreateEventsAndThreads(void)
 	}
 }
 
-void WriteToBuffer(VOID)
+void WriteToBuffer(void)
 {
 	int32_t status = AR_EOK;
 

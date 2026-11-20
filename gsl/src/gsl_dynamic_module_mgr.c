@@ -5,7 +5,7 @@
  *      Manages the loading and unloading of Spf dynamic modules
  *
  * \copyright
- *  Copyright (c) Qualcomm Innovation Center, Inc. All rights reserved.
+ *  Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *  SPDX-License-Identifier: BSD-3-Clause
  */
 #include "gsl_dynamic_module_mgr.h"
@@ -387,7 +387,7 @@ int32_t gsl_do_load_bootup_dyn_modules(uint32_t master_proc,
 		if (rc) {
 			GSL_ERR("Load modules cmd 0x%x failure:%d",
 				AMDB_CMD_LOAD_MODULES, rc);
-			goto exit;
+			goto undo_module_registration;
 		}
 		if (p_rsp_pkt) {
 			load_cmd = GPR_PKT_GET_PAYLOAD(struct amdb_module_load_unload_t,

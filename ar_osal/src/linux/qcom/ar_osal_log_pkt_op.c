@@ -4,7 +4,7 @@
 *    Defines platform agnostic APIs for sending log packets to
 *    the PC.
 * \copyright
-*  Copyright (c) Qualcomm Innovation Center, Inc. All rights reserved.
+*  Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
 *  SPDX-License-Identifier: BSD-3-Clause
 */
 
@@ -111,6 +111,9 @@ void *ar_log_pkt_alloc(uint16_t logcode, uint32_t length)
     uint8_t *ptr = (uint8_t*)ar_osal_log_alloc(
          logcode,
          AR_OSAL_LOG_DIAG_HEADER_LENGTH + length);
+
+    if (NULL == ptr)
+        return NULL;
 
     return ptr + AR_OSAL_LOG_DIAG_HEADER_LENGTH;
 }

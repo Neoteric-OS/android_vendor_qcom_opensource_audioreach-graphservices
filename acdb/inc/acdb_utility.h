@@ -8,7 +8,7 @@
 *		Provides utility functions to be used accross ACDB SW.
 *
 * \copyright
-*  Copyright (c) Qualcomm Innovation Center, Inc. All rights reserved.
+*  Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
 *  SPDX-License-Identifier: BSD-3-Clause
 *
 *=============================================================================
@@ -50,7 +50,7 @@
 
 #define ACDB_FREE(data) AcdbFree((void*)data)
 
-//TODO: Remove this function once its avalible in the OSAL
+//TODO: Remove this function once its available in the OSAL
 #ifndef ar_sscanf
 #if defined(_WIN64) || defined(_WIN32)
 #define ar_sscanf(buf, format, ...) sscanf_s(buf, format, __VA_ARGS__)

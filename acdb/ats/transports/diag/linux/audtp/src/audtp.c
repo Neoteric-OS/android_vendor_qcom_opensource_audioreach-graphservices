@@ -16,7 +16,7 @@
  *     #ifdef WINPC
  *
  * \copyright
- *     Copyright (c) Qualcomm Innovation Center, Inc. All rights reserved.
+ *     Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *     SPDX-License-Identifier: BSD-3-Clause
  *
  *==============================================================================
@@ -337,6 +337,11 @@ bool_t copy_frame_to_buffer (
         buf_cntxt_ptr->is_buffer_allocated = TRUE ;
         /** assign buffer length*/
         buf_cntxt_ptr->buffer_length = frame_ptr->header.buffer_length;
+    }
+
+    if (frame_ptr->header.frame_offset >= buf_cntxt_ptr->buffer_length)
+    {
+        return FALSE;
     }
 
     /** Calculate destination loaction where to copy the frame*/

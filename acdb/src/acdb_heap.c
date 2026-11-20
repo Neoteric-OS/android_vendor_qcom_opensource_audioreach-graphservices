@@ -6,7 +6,7 @@
 *      Manages the calibration data set by ACDB SW clients in RAM.
 *
 * \copyright
-*  Copyright (c) Qualcomm Innovation Center, Inc. All rights reserved.
+*  Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
 *  SPDX-License-Identifier: BSD-3-Clause
 *
 *==============================================================================
@@ -833,7 +833,7 @@ int32_t acdb_heap_add_database(uint32_t vm_id, acdb_heap_handle_t *handle)
 
     ACDB_MUTEX_LOCK(acdb_heap_context.heap_lock);
 
-    /* find next avalible slot */
+    /* find next available slot */
     for (index = 0; index < MAX_ACDB_FILE_COUNT; index++)
     {
         if (IsNull(acdb_heap_context.heap_info[index]))

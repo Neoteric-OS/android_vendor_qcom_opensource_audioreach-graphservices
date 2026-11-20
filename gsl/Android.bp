@@ -22,6 +22,7 @@ cc_library_shared {
     ],
 
     srcs: [
+        "src/gsl_cshm_mgr.c",
         "src/gsl_common.c",
         "src/gsl_datapath.c",
         "src/gsl_dls_client.c",
@@ -36,6 +37,7 @@ cc_library_shared {
         "src/gsl_rtc_main.c",
         "src/gsl_shmem_mgr.c",
         "src/gsl_spf_ss_state.c",
+        "src/gsl_spf_timeout.c",
         "src/gsl_subgraph.c",
         "src/gsl_subgraph_pool.c",
     ],

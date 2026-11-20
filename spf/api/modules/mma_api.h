@@ -1,12 +1,12 @@
-#ifndef __MMA_API__
-#define __MMA_API__
+#ifndef __MMA_API_H__
+#define __MMA_API_H__
 
 /*==============================================================================
   @file  mma_api.h
   @brief This file contains Public APIs for MMA module.
 
 \copyright
-Copyright (c) Qualcomm Innovation Center, Inc. All rights reserved.
+Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
 SPDX-License-Identifier: BSD-3-Clause
 ===============================================================================*/
 
@@ -18,11 +18,12 @@ when       who      what, where, why
 10/5/24     vvenna     Created File.
 ============================================================================*/
 #include "imcl_fwk_intent_api.h"
+#include "contexts_api.h"
 
 /**
    @h2xml_title1           {Module MMA API}
    @h2xml_title_agile_rev  {Module MMA API}
-   @h2xml_title_date       {May 16, 2024}
+   @h2xml_title_date       {July 5, 2024}
 */
 #define MMA_RELEASE_VERSION_MSB AR_NON_GUID(0x01000100)
 #define MMA_RELEASE_VERSION_LSB AR_NON_GUID(0x00000000)
@@ -34,12 +35,10 @@ when       who      what, where, why
 #define CAPI_MMA_MAX_OUTPUT_PORTS 0
 #define CAPI_MMA_STACK_SIZE_REQUIREMENT 8192 // TODO: profile and update
 
-
 /* Global unique Module ID definition.
    Module library is independent of this number, it defined here for static
    loading purpose only */
 #define MODULE_ID_MMA 0x07001177
-
 
 /*==============================================================================
    Module definition
@@ -47,11 +46,11 @@ when       who      what, where, why
 /**
     @h2xml_title1          {Multi-Modal Activation Module API}
     @h2xml_title_agile_rev {Multi-Modal Activation Module API}
-    @h2xml_title_date      {May 10, 2024} */
+    @h2xml_title_date      {July 5, 2024} */
 
 /** @h2xmlm_module       {"MODULE_ID_MMA",MODULE_ID_MMA}
     @h2xmlm_displayName  {"Multi-Modal Activation (MMA)"}
-    @h2xmlm_description  {Supports the wakeup detection feature. \n // TODO: Update
+    @h2xmlm_description  {Supports the wakeup detection feature. \n
  *      - #PARAM_ID_MMA_STATIC_CFG \n
  *      - #PARAM_ID_MMA_MODE_BIT_CONFIG \n
  *      - #PARAM_ID_MMA_CONTEXT_ML_MODEL_CONFIG \n
@@ -63,8 +62,15 @@ when       who      what, where, why
  *      - #PARAM_ID_MMA_ENABLE_SPEECH_RESET \n
  *      - #PARAM_ID_MMA_SPEECH_RESET_PERIOD \n
  *      - #PARAM_ID_MMA_ILD_CONFIG \n
+ *      - #PARAM_ID_MMA_CAMERA_CONFIG \n
  *      - #PARAM_ID_MMA_HISTORY_BUFFER_SIZE \n
  *      - #PARAM_ID_MMA_RESET \n
+ *      - #PARAM_ID_MMA_ILD_RMS_CONFIG \n
+ *      - #PARAM_ID_MMA_ILD_COH_CONFIG \n
+ *      - #PARAM_ID_MMA_ILD_MEDFILT_CONFIG \n
+ *      - #PARAM_ID_MMA_ILD_PND_CONFIG \n
+ *      - #PARAM_ID_MMA_ILD_LMS_CONFIG \n
+ *      - #PARAM_ID_MMA_LVD_CONFIG \n
  *
  * Supported Input Media Format: \n
  *  - Data Format          : FIXED_POINT \n
@@ -130,12 +136,18 @@ struct param_id_mma_static_cfg_t {
 #include "spf_end_pack.h"
 ;
 
-
 #define PARAM_ID_MMA_MODE_BIT_CONFIG 0x08001AC5
 
 /** @h2xmlp_parameter   {"PARAM_ID_MMA_MODE_BIT_CONFIG", PARAM_ID_MMA_MODE_BIT_CONFIG}
-    @h2xmlp_description {Parameter to get MMA mode bit config}
-    @h2xmlp_toolPolicy  {Calibration}*/
+    @h2xmlp_description {Parameter to get MMA library version.\n
+                                0x00000006  TILT-N_TALK: Tilt2Talk + Speech(or mid-distance speech) Detection \n
+*                               0x0000000A  Lift-N-Talk :Intent2Speak + NVD  // CAPI doesnt expose NVD bit. So speech is enabled \n
+*                               0x00000026  Lift-Gaze-Talk:Tilt2Talk + Gaze Detection + Speech(or mid-distance speech) Detection \n
+*                               0x00000016  Lift-Face-Talk:Tilt2Talk + Face Detection + Speech(or mid-distance speech) Detection \n
+*                               0x00000022  Gaze-N-Talk:Gaze Detection + Speech(or mid-distance speech) Detection \n
+*                               0x0000002A  Lift-Gaze-Talk_1 :Intent2Speak+ Gaze Detection + Speech(or mid-distance speech) Detection \n
+*                               0x0000001A  Lift-Face-Talk_1 :Intent2Speak+ Face Detection + Speech(or mid-distance speech) Detection \n }
+    @h2xmlp_toolPolicy  {NO_SUPPORT}*/
 
 #include "spf_begin_pack.h"
 #include "spf_begin_pragma.h"
@@ -147,20 +159,20 @@ struct param_id_mma_mode_bit_config_t {
 
     @h2xmle_bitfield        {0x00000001}
     @h2xmle_default         {0}
-    @h2xmle_bitName         {Bit_0_NVD}
+    @h2xmle_bitName         {Bit_0}
     @h2xmle_description     {Reserved}
     @h2xmle_visibility      {hide}
     @h2xmle_bitfieldEnd
 
     @h2xmle_bitfield        {0x00000002}
-    @h2xmle_default         {0}
+    @h2xmle_default         {1}
     @h2xmle_bitName         {Bit_1_SPEECH_or_NVD}
     @h2xmle_rangeList       {"Disable"=0; "Enable"=1}
     @h2xmle_description     {Speech detection}
     @h2xmle_bitfieldEnd
 
     @h2xmle_bitfield        {0x00000004}
-    @h2xmle_default         {0}
+    @h2xmle_default         {1}
     @h2xmle_bitName         {Bit_2_TILT_TO_WAKE}
     @h2xmle_rangeList       {"Disable"=0; "Enable"=1}
     @h2xmle_description     {Tilt to talk}
@@ -171,29 +183,49 @@ struct param_id_mma_mode_bit_config_t {
     @h2xmle_bitName         {Bit_3_INTENT2SPEAK_ACCEL}
     @h2xmle_rangeList       {"Disable"=0; "Enable"=1}
     @h2xmle_description     {Intent to talk}
-    @h2xmle_visibility      {hide}
     @h2xmle_bitfieldEnd
 
     @h2xmle_bitfield        {0x00000010}
     @h2xmle_default         {0}
-    @h2xmle_bitName         {Bit_4_CAMERA}
+    @h2xmle_bitName         {Bit_4_CAMERA_FACE}
     @h2xmle_rangeList       {"Disable"=0; "Enable"=1}
-    @h2xmle_description     {camera}
-    @h2xmle_visibility      {hide}
+    @h2xmle_description     {camera face}
     @h2xmle_bitfieldEnd
 
     @h2xmle_bitfield        {0x00000020}
     @h2xmle_default         {0}
-    @h2xmle_bitName         {Bit_5_ONOFFBODY_DETECTION}
+    @h2xmle_bitName         {Bit_5_CAMERA_GAZE}
+    @h2xmle_rangeList       {"Disable"=0; "Enable"=1}
+    @h2xmle_description     {camera gaze}
+    @h2xmle_bitfieldEnd
+
+    @h2xmle_bitfield        {0x00000040}
+    @h2xmle_default         {0}
+    @h2xmle_bitName         {Bit_6_ONOFFBODY_DETECTION}
     @h2xmle_rangeList       {"Disable"=0; "Enable"=1}
     @h2xmle_description     {Onoffbody detection}
     @h2xmle_visibility      {hide}
     @h2xmle_bitfieldEnd
 
-    @h2xmle_bitfield        {0xFFFFFFC0}
-    @h2xmle_bitName         {Bit_31_6}
+    @h2xmle_bitfield        {0x00000080}
+    @h2xmle_default         {0}
+    @h2xmle_bitName         {Bit_7_AMD}
+    @h2xmle_rangeList       {"Disable"=0; "Enable"=1}
+    @h2xmle_description     {Any Motion Detection}
+    @h2xmle_visibility      {hide}
+    @h2xmle_bitfieldEnd
+
+    @h2xmle_bitfield        {0xFFFFFF00}
+    @h2xmle_bitName         {Bit_30_8}
     @h2xmle_description     {Reserved}
     @h2xmle_visibility      {hide}
+    @h2xmle_bitfieldEnd
+
+    @h2xmle_bitfield        {0x80000000}
+    @h2xmle_default         {0}
+    @h2xmle_bitName         {Bit_31_SYNTHETIC_MODALITY_DETECTIONS_FEATURE}
+    @h2xmle_rangeList       {"Disable"=0; "Enable"=1}
+    @h2xmle_description     {Enable synthetic modality detection feature for testing. When enabled, Module automatically generates detection events for non-audio modalities (sensors/camera) at configured intervals.}
     @h2xmle_bitfieldEnd
 
     */
@@ -203,12 +235,11 @@ struct param_id_mma_mode_bit_config_t {
 #include "spf_end_pack.h"
 ;
 
-
 #define PARAM_ID_MMA_CONTEXT_ML_MODEL_CONFIG 0x08001AC6
 
 /** @h2xmlp_parameter           {"PARAM_ID_MMA_CONTEXT_ML_MODEL_CONFIG", PARAM_ID_MMA_CONTEXT_ML_MODEL_CONFIG}
     @h2xmlp_description         {MMA stage1 ML MODEL}
-    @h2xmlp_ToolPolicy          {CALIBRATION}
+    @h2xmlp_ToolPolicy          {Calibration}
     @h2xmlp_isNeuralNetParam    {TRUE}
     @h2xmlp_isOffloaded         {TRUE}
     @h2xmlp_isHwAccel           {TRUE}
@@ -256,17 +287,15 @@ struct param_id_mma_context_ml_model_config_t
 #include "spf_end_pack.h"
 ;
 
-
-
- /** @h2xmlp_subStruct */
-/* Unique Paramter id */
+/** @h2xmlp_subStruct */
+/* Unique Parameter id */
 #include "spf_begin_pack.h"
 #include "spf_begin_pragma.h"
 struct capi_mma_context_threshold_struct_t {
 
     uint32_t context_id;
-    /**< @h2xmle_description   {context ID for which threshold being set}
-         @h2xmle_default       {1}
+    /**< @h2xmle_description   {context ID for which threshold being set. Context_id is indepedent of mode_bit and usecase designer has to tune this based on model which is being set from application}
+         @h2xmle_default       {MODULE_CMN_CONTEXT_ID_AMBIENCE_SPEECH}
          @h2xmle_group         {GLOBAL}
          @h2xmle_policy        {Advanced} */
 
@@ -286,8 +315,7 @@ struct capi_mma_context_threshold_struct_t {
 
 /** @h2xmlp_parameter   {"PARAM_ID_MMA_CONTEXT_THRESHOLD", PARAM_ID_MMA_CONTEXT_THRESHOLD}
     @h2xmlp_description {Parameter to set context thresholds for MMA module.}
-    @h2xmlp_toolPolicy  {Calibration}*/
-
+    @h2xmlp_toolPolicy  {NO_SUPPORT}*/
 
 #include "spf_begin_pack.h"
 #include "spf_begin_pragma.h"
@@ -313,11 +341,10 @@ struct param_id_mma_context_threshold_t {
 #include "spf_end_pack.h"
 ;
 
-
 #define PARAM_ID_MMA_SPEECH_DYNAMIC_CONFIG 0x08001AC8
 
 /** @h2xmlp_parameter   {"PARAM_ID_MMA_SPEECH_DYNAMIC_CONFIG", PARAM_ID_MMA_SPEECH_DYNAMIC_CONFIG}
-    @h2xmlp_description {Parameter to set dynamic config for speech/NVD.}
+    @h2xmlp_description {Parameter to set dynamic config for speech/NVD. Applicable if speech_or_nvd bit is set and don't care for other modes}
     @h2xmlp_toolPolicy  {Calibration}*/
 
 #include "spf_begin_pack.h"
@@ -350,8 +377,6 @@ struct param_id_mma_speech_dynamic_config_t {
 #include "spf_end_pack.h"
 ;
 
-
-
 #define PARAM_ID_MMA_CONTINUOUS_LISTEN_ENABLE_CONFIG 0x08001AC9
 
 /** @h2xmlp_parameter   {"PARAM_ID_MMA_CONTINUOUS_LISTEN_ENABLE_CONFIG", PARAM_ID_MMA_CONTINUOUS_LISTEN_ENABLE_CONFIG}
@@ -373,7 +398,6 @@ struct param_id_mma_continuous_listen_enable_config_t {
 #include "spf_end_pack.h"
 ;
 
-
 #define PARAM_ID_MMA_CONTINUOUS_LISTEN_TIMEOUT_CONFIG 0x08001ACA
 
 /** @h2xmlp_parameter   {"PARAM_ID_MMA_CONTINUOUS_LISTEN_TIMEOUT_CONFIG", PARAM_ID_MMA_CONTINUOUS_LISTEN_TIMEOUT_CONFIG}
@@ -387,7 +411,7 @@ struct param_id_mma_continuous_listen_timeout_config_t {
     int32_t continuous_listen_timeout_in_ms;
     /**< @h2xmle_description {Continuous listen timeout in ms }
     @h2xmle_default     {2000}
-    @h2xmle_range       {1..15000}
+    @h2xmle_range       {1000..15000}
     @h2xmle_policy      {Advanced} */
 
 }
@@ -408,14 +432,13 @@ struct param_id_mma_detection_timeout_config_t {
     int32_t detection_timeout_in_ms;
     /**< @h2xmle_description {detection listen timeout in ms}
     @h2xmle_default     {2000}
-    @h2xmle_range       {1..15000}
+    @h2xmle_range       {1000..15000}
     @h2xmle_policy      {Advanced} */
 
 }
 #include "spf_end_pragma.h"
 #include "spf_end_pack.h"
 ;
-
 
 #define PARAM_ID_MMA_ENABLE_SPEECH_RESET 0x08001ACC
 
@@ -459,11 +482,10 @@ struct param_id_mma_speech_reset_period_t {
 #include "spf_end_pack.h"
 ;
 
-
 #define PARAM_ID_MMA_ILD_CONFIG 0x08001ACE
 
 /** @h2xmlp_parameter   {"PARAM_ID_MMA_ILD_CONFIG", PARAM_ID_MMA_ILD_CONFIG}
-    @h2xmlp_description {ILD configuration }
+    @h2xmlp_description {ILD(interaural level difference) configuration, During multi channel processing checks the signal level difference between input channels for better detection rate }
     @h2xmlp_toolPolicy  {Calibration}*/
 
 #include "spf_begin_pack.h"
@@ -472,7 +494,7 @@ struct param_id_mma_ild_config_param_t {
 
     int32_t ild_enable;
     /**< @h2xmle_description {Enable or disable ILD mechanism.}
-     @h2xmle_default     {0}
+    @h2xmle_default     {0}
     @h2xmle_range       {0..1}
     @h2xmle_group       {MMA_ILD}
     @h2xmle_subgroup    {General}
@@ -480,16 +502,16 @@ struct param_id_mma_ild_config_param_t {
 
     int32_t ild_threshold_Q16;
     /**< @h2xmle_description {Configure an ILD threshold.}
-     @h2xmle_default     {131072}
+    @h2xmle_default     {131072}
     @h2xmle_range       {65536..2147483647}
     @h2xmle_group       {MMA_ILD}
     @h2xmle_subgroup    {General}
     @h2xmle_policy      {Advanced} */
 
-    int32_t ild_buff_duration_in_ms;  //ILD exposed API has it in frames. Do translation in MMA
-    /**< @h2xmle_description {HIstory buffer duration.}
-     @h2xmle_default     {500}
-    @h2xmle_range       {500..3000}
+    int32_t ild_buff_duration_in_ms;
+    /**< @h2xmle_description {HIstory buffer duration for which rms value evaluation happen for successful detection}
+    @h2xmle_default     {300}
+    @h2xmle_range       {20..3000}
     @h2xmle_group       {MMA_ILD}
     @h2xmle_subgroup    {General}
     @h2xmle_policy      {Advanced} */
@@ -499,33 +521,10 @@ struct param_id_mma_ild_config_param_t {
 #include "spf_end_pack.h"
 ;
 
+#define PARAM_ID_MMA_ILD_RMS_CONFIG 0x08001BD4
 
-// #define PARAM_ID_MMA_SPEECH_RESET_PERIOD 0x08001AD3
-
-// /** @h2xmlp_parameter   {"PARAM_ID_MMA_SPEECH_RESET_PERIOD", PARAM_ID_MMA_SPEECH_RESET_PERIOD}
-    // @h2xmlp_description {reset period in ms  }
-    // @h2xmlp_toolPolicy  {Calibration}*/
-
-// #include "spf_begin_pack.h"
-// #include "spf_begin_pragma.h"
-// typedef struct param_id_mma_speech_reset_period_t {
-
-    // int32_t speech_reset_period_in_ms;
-    // /**< @h2xmle_description {reset period in microseconds}
-    // @h2xmle_default     {3000}
-    // @h2xmle_range       {0..9000}
-    // @h2xmle_policy      {Advanced} */
-
-// }param_id_mma_speech_reset_period_t
-// #include "spf_end_pragma.h"
-// #include "spf_end_pack.h"
-// ;
-
-
-#define PARAM_ID_MMA_SPEECH_STATE_FORGET_FACTOR 0x08001AD2
-
-/** @h2xmlp_parameter   {"PARAM_ID_MMA_SPEECH_STATE_FORGET_FACTOR", PARAM_ID_MMA_SPEECH_STATE_FORGET_FACTOR}
-    @h2xmlp_description {state forget factor for speech model  }
+/** @h2xmlp_parameter   {"PARAM_ID_MMA_ILD_RMS_CONFIG", PARAM_ID_MMA_ILD_RMS_CONFIG}
+    @h2xmlp_description {ILD RMS configuration for microphone level detection}
     @h2xmlp_toolPolicy  {Calibration}*/
 
 #include "spf_begin_pack.h"
@@ -550,6 +549,45 @@ struct param_id_mma_speech_state_forget_factor_t {
 #include "spf_end_pack.h"
 ;
 
+typedef enum _camera_fd_delivery_mode
+{
+   MMA_CAMERA_FD_DELIVERY_MODE_MOTION_BASED = 0,
+   MMA_CAMERA_FD_DELIVERY_MODE_TIME_BASED   = 1
+} camera_fd_delivery_mode;
+
+#define PARAM_ID_MMA_CAMERA_CONFIG 0x08001B0F
+
+/** @h2xmlp_parameter   {"PARAM_ID_MMA_CAMERA_CONFIG", PARAM_ID_MMA_CAMERA_CONFIG}
+    @h2xmlp_description {CAMERA face detection config - this will be set when modality bits of camera_face or camera_gaze are set}
+    @h2xmlp_toolPolicy  {Calibration}*/
+
+#include "spf_begin_pack.h"
+#include "spf_begin_pragma.h"
+typedef struct param_id_mma_camera_config_t
+{
+
+    uint32_t delivery_mode; // delivery_mode, refer enum camera_fd_delivery_mode
+    /**< @h2xmle_description {delivery mode}
+    @h2xmle_default     {0}
+    @h2xmle_rangeList   {"MMA_CAMERA_FD_DELIVERY_MODE_MOTION_BASED"=0,"MMA_CAMERA_FD_DELIVERY_MODE_TIME_BASED"=1 }
+    @h2xmle_policy      {Advanced} */
+    uint32_t detections_per_delivery;
+    /**< @h2xmle_description {Number of times detections are performed per delivery(applicable for both delivery_mode -
+    MOTION_BASED and TIME_BASED).}
+    @h2xmle_default     {1}
+    @h2xmle_range       {1..100}
+    @h2xmle_policy      {Advanced} */
+    uint32_t delivery_period_in_ms;
+    /**< @h2xmle_description {Delivery period in ms mentions how often events will be delivered. Delivery period in ms is
+    applicable only when delivery_mode is set as TIME_BASED.}
+    @h2xmle_default     {1000}
+    @h2xmle_range       {1..10000}
+    @h2xmle_policy      {Advanced} */
+
+} param_id_mma_camera_config_t
+#include "spf_end_pragma.h"
+#include "spf_end_pack.h"
+;
 
 #define PARAM_ID_MMA_HISTORY_BUFFER_SIZE 0x08001ACF
 
@@ -564,13 +602,34 @@ struct param_id_mma_history_buffer_size_t {
     uint32_t history_buffer_size_in_ms;
     /**< @h2xmle_description {Desired duration of history buffer in milli seconds}
     @h2xmle_default     {2000}
-    @h2xmle_range       {0..0xFFFFFFFF}*/
+    @h2xmle_range       {0..0x30000}*/
 
 }
 #include "spf_end_pragma.h"
 #include "spf_end_pack.h"
 ;
 
+#define PARAM_ID_MMA_SYNTHETIC_MODALITY_DETECTION_DURATION 0x08001BE8
+
+/** @h2xmlp_parameter   {"PARAM_ID_MMA_SYNTHETIC_MODALITY_DETECTION_DURATION", PARAM_ID_MMA_SYNTHETIC_MODALITY_DETECTION_DURATION}
+    @h2xmlp_description {duration of synthetic detection generation}
+    @h2xmlp_toolPolicy  {Calibration}*/
+
+#include "spf_begin_pack.h"
+#include "spf_begin_pragma.h"
+typedef struct param_id_mma_synthetic_modality_detection_duration_t
+{
+
+    uint32_t synthetic_modality_detection_duration_in_ms;
+    /**< @h2xmle_description {Time interval in milliseconds at which synthetic detection events are automatically generated for enabled non-audio modalities (sensors/camera). Only active when bit 31 of mode_bit is enabled.}
+    @h2xmle_default     {10000}
+    @h2xmle_range       {5000..15000}
+    @h2xmle_policy      {Advanced} */
+
+} param_id_mma_synthetic_modality_detection_duration_t
+#include "spf_end_pragma.h"
+#include "spf_end_pack.h"
+;
 
 #define PARAM_ID_MMA_RESET 0x08001AD0
 
@@ -665,8 +724,8 @@ typedef struct event_id_mma_detection_event_t
      @h2xmle_group         {GLOBAL}
      @h2xmle_policy        {Advanced} */
 
-}event_id_mma_detection_event_t;
+} event_id_mma_detection_event_t;
 
 /**    @}                   <-- End of the Module -->*/
 
-#endif // #ifndef __MMA_API__
+#endif // #ifndef __MMA_API_H__

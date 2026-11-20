@@ -7,7 +7,7 @@
 *		interface.
 *
 * \copyright
-*  Copyright (c) Qualcomm Innovation Center, Inc. All rights reserved.
+*  Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
 *  SPDX-License-Identifier: BSD-3-Clause
 *
 *=============================================================================
@@ -54,7 +54,7 @@ struct _acdb_delta_file_man_database_info_t {
     uint32_t acdb_file_index;
     /**< A flag indicating whether the delta file is updated */
     uint32_t is_updated;
-    /**< A flag that determines the existance of the delta file */
+    /**< A flag that determines the existence of the delta file */
     uint32_t exists;
     /**< The size of the delta file */
     uint32_t file_size;
@@ -305,20 +305,40 @@ int32_t AcdbDeltaDataCmdSave(void)
         return AR_EOK;
     }
 
+    /* Check if heap contains any data. If not, do nothing and return */
+	p_map_list = &map_list;
+
+	status = acdb_heap_ioctl(ACDB_HEAP_CMD_GET_MAP_LIST, NULL, 0,
+        (uint8_t*)&p_map_list, sizeof(LinkedList));
+	if (AR_EOK != status) goto end;
+
+	cur_node = p_map_list->p_head;
+
+    if(cur_node == NULL)
+    {
+        ACDB_ERR("Warning[%d]: No data to write. The heap is empty",
+            AR_EHANDLE);
+        status = AR_EOK;
+        goto end;
+    }
+
     db_info = (AcdbDeltaFileManDatabaseInfo*)
         context_handle->delta_manager_handle;
 
     fhandle = &db_info->file_handle;
 
-	//Close and delete old delta file
-	ar_fclose(*fhandle);
+    //Close and delete old delta file
+    if (*fhandle != NULL)
+    {
+        ar_fclose(*fhandle);
+        *fhandle = NULL;
+    }
 
     status = ar_fdelete(db_info->delta_file_path.path);
-
     if (AR_FAILED(status))
     {
         ACDB_ERR("Error[%d]: Failed to delete delta file", status);
-        return status;
+        goto end;
     }
 
 	/* Create new delta file and set ar_fhandle to acdb_delta_file_man_context
@@ -332,7 +352,7 @@ int32_t AcdbDeltaDataCmdSave(void)
     if (AR_FAILED(status))
 	{
 		ACDB_ERR_MSG_1("Unable to create a new delta acdb file", status);
-        return status;
+        goto end;
 	}
 
     fsize = delta_info.properties.file_size;
@@ -342,25 +362,20 @@ int32_t AcdbDeltaDataCmdSave(void)
     if (AR_FAILED(status))
     {
         ACDB_ERR("Error[%d]: Failed to open delta file", status);
-        return status;
+        goto end;
     }
 
 	db_info->file_handle = *fhandle;
 
+    /* Write the header first as a place holder. We'll update this after 
+     * determining the number of maps and size of the data */
 	status = acdb_delta_parser_write_file_header(
 		db_info->file_handle,
 		&db_info->file_info, 0, 0);
 
     if (AR_FAILED(status)) goto end;
 
-	p_map_list = &map_list;
-
-	status = acdb_heap_ioctl(ACDB_HEAP_CMD_GET_MAP_LIST, NULL, 0,
-        (uint8_t*)&p_map_list, sizeof(LinkedList));
-	if (AR_EOK != status) goto end;
-
-	cur_node = p_map_list->p_head;
-
+    /* Write the map data to the file */
 	while (cur_node != NULL)
 	{
         map = ((acdb_delta_data_map_t*)cur_node->p_struct);
@@ -369,6 +384,7 @@ int32_t AcdbDeltaDataCmdSave(void)
 		cur_node = cur_node->p_next;
 	}
 
+    /* Seek back to the begining of the file to update the header */
 	status = ar_fseek(*fhandle, 0, AR_FSEEK_BEGIN);
     if (AR_FAILED(status))
     {
@@ -391,7 +407,6 @@ int32_t AcdbDeltaDataCmdSave(void)
 end:
     AcdbListClear(p_map_list);
     p_map_list = NULL;
-
 	return status;
 }
 int32_t AcdbDeltaInitHeap(acdb_context_handle_t *handle)
@@ -542,11 +557,15 @@ int32_t AcdbDeltaDeleteFile(uint32_t database_index)
         &file_name_info, sizeof(file_name_info));
 
     //Close and delete old delta file
-    status = ar_fclose(*fhandle);
-    if (AR_EOK != status)
+    if (*fhandle != NULL)
     {
-        ACDB_ERR("Error[%d]: Failed to close delta file", status);
-        return status;
+        status = ar_fclose(*fhandle);
+        *fhandle = NULL;
+        if (AR_EOK != status)
+        {
+            ACDB_ERR("Error[%d]: Failed to close delta file", status);
+            return status;
+        }
     }
 
     status = AcdbInitUtilDeleteDeltaFileData(
@@ -588,12 +607,16 @@ int32_t AcdbDeltaDataSwapDelta(AcdbDeltaDataSwapInfo *swap_info)
     db_info = ACDB_DFM_DB_INFO_AT_INDEX(swap_info->file_index);
 
     /* Close the previous delta file and open/create the new file */
-    status = ar_fclose(db_info->file_handle);
-    if (AR_FAILED(status))
+    if (db_info->file_handle != NULL)
     {
-        ACDB_ERR("Error[%d]: Failed to close %s ", status,
-            db_info->delta_file_path.path);
-        return status;
+        status = ar_fclose(db_info->file_handle);
+        db_info->file_handle = NULL;
+        if (AR_FAILED(status))
+        {
+            ACDB_ERR("Error[%d]: Failed to close %s ", status,
+                db_info->delta_file_path.path);
+            return status;
+        }
     }
 
     status = acdb_file_man_ioctl(ACDB_FILE_MAN_GET_FILE_NAME,

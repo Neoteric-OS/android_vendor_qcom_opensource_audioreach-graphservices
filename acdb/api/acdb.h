@@ -9,7 +9,7 @@
 *      Database (ACDB) module.
 *
 * \copyright
-*  Copyright (c) Qualcomm Innovation Center, Inc. All rights reserved.
+*  Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
 *  SPDX-License-Identifier: BSD-3-Clause
 *
 *=============================================================================
@@ -35,7 +35,7 @@ extern "C"
 #define ACDB_SOFTWARE_VERSION_MAJOR 0x00000001
 
 /**< The ACDB Software Minor Version */
-#define ACDB_SOFTWARE_VERSION_MINOR 0x00000029
+#define ACDB_SOFTWARE_VERSION_MINOR 0x00000030
 
 /**< The ACDB Software Revision */
 #define ACDB_SOFTWARE_VERSION_REVISION 0x00000000
@@ -1953,6 +1953,9 @@ The memory types are: System Heap(0x0), Physically Contiguous Memory (0x01)
 /**< Extracts the hardware acceleration memory type from the
 processor domain ID */
 #define ACDB_HW_ACCEL_MEM_TYPE(proc_id) ((AcdbHwAccelMemType)(proc_id >> 30))
+
+/**< Extracts proc id from processor domain ID */
+#define ACDB_HW_ACCEL_PROC_ID(proc_id) (proc_id & 0x3FFFFFFF)
 
 typedef struct _acdb_subgraph_proc_pair_t AcdbSubgraphProcPair;
 struct _acdb_subgraph_proc_pair_t

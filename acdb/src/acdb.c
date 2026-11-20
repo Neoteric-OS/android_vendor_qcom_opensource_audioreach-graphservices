@@ -7,7 +7,7 @@
 *      Calibration Database (ACDB) module.
 *
 * \copyright
-*  Copyright (c) Qualcomm Innovation Center, Inc. All rights reserved.
+*  Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
 *  SPDX-License-Identifier: BSD-3-Clause
 *
 *=============================================================================
@@ -448,9 +448,11 @@ int32_t acdb_ioctl(uint32_t cmd_id,
 		{
 			status = AR_EBADPARAM;
 		}
-
-		status = AcdbCmdGetAmdbRegData(
-			(AcdbAmdbProcID*)cmd_struct, (AcdbBlob*)rsp_struct);
+		else
+		{
+			status = AcdbCmdGetAmdbRegData(
+				(AcdbAmdbProcID*)cmd_struct, (AcdbBlob*)rsp_struct);
+		}
 		break;
 	case ACDB_CMD_GET_AMDB_DEREGISTRATION_DATA:
 		if (IsNull(cmd_struct) || cmd_struct_size != sizeof(AcdbAmdbProcID) ||
@@ -458,9 +460,11 @@ int32_t acdb_ioctl(uint32_t cmd_id,
 		{
 			status = AR_EBADPARAM;
 		}
-
-		status = AcdbCmdGetAmdbDeregData(
-			(AcdbAmdbProcID*)cmd_struct, (AcdbBlob*)rsp_struct);
+		else
+		{
+			status = AcdbCmdGetAmdbDeregData(
+				(AcdbAmdbProcID*)cmd_struct, (AcdbBlob*)rsp_struct);
+		}
 		break;
 	case ACDB_CMD_GET_SUBGRAPH_PROCIDS:
 		if (IsNull(cmd_struct) || cmd_struct_size != sizeof(AcdbCmdGetSubgraphProcIdsReq) ||
@@ -490,10 +494,11 @@ int32_t acdb_ioctl(uint32_t cmd_id,
 		{
 			status = AR_EBADPARAM;
 		}
-
-		status = AcdbCmdGetAmdbBootupLoadModules(
-			(AcdbAmdbProcID*)cmd_struct, (AcdbBlob*)rsp_struct);
-
+		else
+		{
+			status = AcdbCmdGetAmdbBootupLoadModules(
+				(AcdbAmdbProcID*)cmd_struct, (AcdbBlob*)rsp_struct);
+		}
 		break;
 	case ACDB_CMD_GET_TAGS_FROM_GKV:
 		if (IsNull(cmd_struct) || cmd_struct_size != sizeof(AcdbCmdGetTagsFromGkvReq) ||
@@ -683,9 +688,11 @@ int32_t acdb_ioctl(uint32_t cmd_id,
 		{
 			status = AR_EBADPARAM;
 		}
-
-		status = AcdbCmdGetAmdbRegDataV2(
-			(AcdbAmdbDbHandle*)cmd_struct, (AcdbBlob*)rsp_struct);
+		else
+		{
+			status = AcdbCmdGetAmdbRegDataV2(
+				(AcdbAmdbDbHandle*)cmd_struct, (AcdbBlob*)rsp_struct);
+		}
 		break;
 	case ACDB_CMD_GET_AMDB_DEREGISTRATION_DATA_V2:
 		if (IsNull(cmd_struct) || cmd_struct_size != sizeof(AcdbAmdbDbHandle) ||
@@ -693,9 +700,11 @@ int32_t acdb_ioctl(uint32_t cmd_id,
 		{
 			status = AR_EBADPARAM;
 		}
-
-		status = AcdbCmdGetAmdbDeregDataV2(
-			(AcdbAmdbDbHandle*)cmd_struct, (AcdbBlob*)rsp_struct);
+		else
+		{
+			status = AcdbCmdGetAmdbDeregDataV2(
+				(AcdbAmdbDbHandle*)cmd_struct, (AcdbBlob*)rsp_struct);
+		}
 		break;
 	case ACDB_CMD_GET_AMDB_BOOTUP_LOAD_MODULES_V2:
 		if (IsNull(cmd_struct) || cmd_struct_size != sizeof(AcdbAmdbDbHandle) ||
@@ -703,10 +712,11 @@ int32_t acdb_ioctl(uint32_t cmd_id,
 		{
 			status = AR_EBADPARAM;
 		}
-
-		status = AcdbCmdGetAmdbBootupLoadModulesV2(
-			(AcdbAmdbDbHandle*)cmd_struct, (AcdbBlob*)rsp_struct);
-
+		else
+		{
+			status = AcdbCmdGetAmdbBootupLoadModulesV2(
+				(AcdbAmdbDbHandle*)cmd_struct, (AcdbBlob*)rsp_struct);
+		}
 		break;
 	case ACDB_CMD_GET_GRAPH_ALIAS:
 		if (cmd_struct == NULL || cmd_struct_size != sizeof(AcdbGraphKeyVector) ||
@@ -842,7 +852,7 @@ int32_t acdb_cmd_set_temp_path(AcdbSetTempPathReq *req)
     else if (AR_FAILED(status))
     {
         ACDB_ERR("Error[%d]: An error occured while trying to verify"
-            " the existance of the following path %s", status,
+            " the existence of the following path %s", status,
             &swap_finfo.path_info.path[0]);
         return status;
     }

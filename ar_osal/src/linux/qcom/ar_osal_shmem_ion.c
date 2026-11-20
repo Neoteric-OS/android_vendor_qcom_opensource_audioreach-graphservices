@@ -6,7 +6,7 @@
  *      This file has implementation for ION based shared memory allocation for DSP.
 
  * \copyright
- *  Copyright (c) Qualcomm Innovation Center, Inc. All rights reserved.
+ *  Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *  SPDX-License-Identifier: BSD-3-Clause
  */
 
@@ -73,7 +73,7 @@ static pthread_mutex_t ar_shmem_lock = PTHREAD_MUTEX_INITIALIZER;
 *  0 -- Success
 *  Nonzero -- Failure
 */
-int32_t ar_shmem_validate_sys_id(uint8_t num_sys_id, uint8_t *sys_id)
+int32_t ar_shmem_validate_sys_id(uint8_t num_sys_id, ar_shmem_proc_info *sys_id)
 {
     int32_t status = AR_EOK;
     if (0 == num_sys_id || NULL == sys_id)
@@ -84,12 +84,12 @@ int32_t ar_shmem_validate_sys_id(uint8_t num_sys_id, uint8_t *sys_id)
 
     for (uint8_t i = 0; i < num_sys_id; i++)
     {
-        if (AR_AUDIO_DSP != sys_id[i] &&
-            AR_MODEM_DSP != sys_id[i] &&
-            AR_SENSOR_DSP != sys_id[i] &&
-            AR_COMPUTE_DSP != sys_id[i] &&
-            AR_APSS != sys_id[i] &&
-            AR_APSS2 != sys_id[i])
+        if (AR_AUDIO_DSP != sys_id[i].proc_id &&
+            AR_MODEM_DSP != sys_id[i].proc_id &&
+            AR_SENSOR_DSP != sys_id[i].proc_id &&
+            AR_COMPUTE_DSP != sys_id[i].proc_id &&
+            AR_APSS != sys_id[i].proc_id &&
+            AR_APSS2 != sys_id[i].proc_id)
         {
             status = AR_EBADPARAM;
             break;
@@ -134,12 +134,20 @@ int32_t ar_shmem_init(void)
         AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s:ion dev open failed errno:%d\n", __func__, pdata->ion_handle);
         status = AR_ENOTEXIST;
         free(pdata);
+        pdata = NULL;
         goto end;
     }
     pdata->ion_fd = open(ION_DRIVER_PATH, O_RDWR);
     if (pdata->ion_fd < 0) {
         status = AR_ENOTEXIST;
         AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s ion fd open failed %s status %d\n", __func__, ION_DRIVER_PATH, status);
+#if TARGET_ION_ABI_VERSION >= 2
+        ion_close(pdata->ion_handle);
+#else
+        close(pdata->ion_handle);
+#endif
+        free(pdata);
+        pdata = NULL;
         goto end;
     }
     AR_LOG_INFO(AR_OSAL_SHMEM_LOG_TAG,"%s ion fd open success %s\n", __func__, ION_DRIVER_PATH);
@@ -149,6 +157,14 @@ int32_t ar_shmem_init(void)
         status = AR_ENOTEXIST;
         AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s ion fd open failed %s status %d\n",
         __func__, ION_DRIVER_PATH_CMA, status);
+#if TARGET_ION_ABI_VERSION >= 2
+        ion_close(pdata->ion_handle);
+#else
+        close(pdata->ion_handle);
+#endif
+        close(pdata->ion_fd);
+        free(pdata);
+        pdata = NULL;
         goto end;
     }
     AR_LOG_INFO(AR_OSAL_SHMEM_LOG_TAG,"%s ion fd open success %s\n", __func__, ION_DRIVER_PATH_CMA);
@@ -377,7 +393,7 @@ int32_t ar_shmem_free(_In_ ar_shmem_info *info)
     if (status) {
         AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s:unmap failed. status %d\n", __func__, status);
     }
-    if (shmem_handle->ion_mem_fd) {
+    if (shmem_handle->ion_mem_fd >= 0) {
         close(shmem_handle->ion_mem_fd);
     } else {
         AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s Invalid ion_mem_fd \n", __func__);
@@ -672,6 +688,7 @@ int32_t ar_shmem_deinit(void)
     pthread_mutex_lock(&ar_shmem_lock);
     if (pdata == NULL) {
         AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s not in init state\n", __func__);
+        pthread_mutex_unlock(&ar_shmem_lock);
         return AR_EOK;
     }
     if (pdata->ion_handle){

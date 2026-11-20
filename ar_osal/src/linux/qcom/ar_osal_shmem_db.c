@@ -6,7 +6,7 @@
  *      This file has implementation for DMA buffer based shared memory allocation for DSP.
 
  * \copyright
- *  Copyright (c) Qualcomm Innovation Center, Inc. All rights reserved.
+ *  Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *  SPDX-License-Identifier: BSD-3-Clause
  */
 #define  AR_OSAL_SHMEM_LOG_TAG     "COSH"
@@ -20,21 +20,48 @@
 #include <sys/ioctl.h>
 #include <linux/dma-buf.h>
 #include <linux/dma-heap.h>
+#ifdef MSM_AUDIO_CUSTOM_STACK
+#include <sound/qcom/msm_audio.h>
+#else
 #include <linux/msm_audio.h>
+#endif
 #ifdef AR_OSAL_USE_CUTILS
 #include <cutils/properties.h>
 #endif
 #include "ar_osal_shmem.h"
+#include "ar_osal_shmem_dsp.h"
 #include "ar_osal_error.h"
 #include "ar_osal_log.h"
-
+#ifdef AR_OSAL_USE_DYNAMIC_PD
+#include "remote.h"
+#endif
+#include "ar_osal_sleep.h"
 #define  SHMEM_4K_ALIGNMENT       0x1000
+#ifndef ION_DRIVER_UNSUPPORTED
 #define AR_MEM_DRIVER_PATH "/dev/msm_audio_ion"
 #define AR_MEM_DRIVER_PATH_CMA "/dev/msm_audio_ion_cma"
+#else
+#define AR_MEM_DRIVER_PATH "/dev/msm_audio_mem"
+#define AR_MEM_DRIVER_PATH_CMA "/dev/msm_audio_mem_cma"
+#endif
+#ifdef MDSP_PROC
+#define DMABUF_SYS_HEAP_PATH "/dev/dma_heap/qcom,audio"
+#else
 #define DMABUF_SYS_HEAP_PATH "/dev/dma_heap/system"
+#endif
 #define DMABUF_SYS_HEAP_PATH_UNCACHED "/dev/dma_heap/qcom,system-uncached"
 #define DMABUF_SYS_HEAP_PATH_CMA "/dev/dma_heap/qcom,audio-ml"
+#define AR_FD_OPEN_RETRY_US (500*1000)
+#define AR_FD_OPEN_NUM_RETRIES 4
 
+#define AR_FD_OPEN_RETRY_US (500*1000)
+#define AR_FD_OPEN_NUM_RETRIES 4
+
+#ifdef AR_OSAL_USE_DYNAMIC_PD
+static int32_t ar_dsp_domain_id[AR_SUB_SYS_ID_LAST + 1] = {
+    -1, MDSP_DOMAIN_ID, ADSP_DOMAIN_ID, -1, SDSP_DOMAIN_ID, CDSP_DOMAIN_ID, -1
+};
+#endif
 
 typedef struct ar_shmem_handle_data {
   int32_t heap_fd;
@@ -60,29 +87,200 @@ static pthread_mutex_t ar_shmem_lock = PTHREAD_MUTEX_INITIALIZER;
  *  0 -- Success
  *  Nonzero -- Failure
  */
-int32_t ar_shmem_validate_sys_id(uint8_t num_sys_id, uint8_t *sys_id)
+static int32_t ar_shmem_validate_sys_id(uint8_t num_sys_id, ar_shmem_proc_info *sys_id)
 {
     int32_t status = AR_EOK;
-    if (0 == num_sys_id || NULL == sys_id)
-    {
-        status = AR_EBADPARAM;
-        goto end;
-    }
 
-    for (uint8_t i = 0; i < num_sys_id; i++)
-    {
-        if (AR_AUDIO_DSP != sys_id[i] &&
-            AR_MODEM_DSP != sys_id[i] &&
-            AR_SENSOR_DSP != sys_id[i] &&
-            AR_COMPUTE_DSP != sys_id[i] &&
-            AR_APSS != sys_id[i] &&
-            AR_APSS2 != sys_id[i])
-        {
+    if (0 == num_sys_id || NULL == sys_id)
+        return AR_EBADPARAM;
+
+    for (uint8_t i = 0; i < num_sys_id; ++i) {
+        if (AR_AUDIO_DSP != sys_id[i].proc_id &&
+            AR_MODEM_DSP != sys_id[i].proc_id &&
+            AR_SENSOR_DSP != sys_id[i].proc_id &&
+            AR_COMPUTE_DSP != sys_id[i].proc_id &&
+            AR_APSS != sys_id[i].proc_id &&
+            AR_APSS2 != sys_id[i].proc_id) {
             status = AR_EBADPARAM;
             break;
         }
     }
+    return status;
+}
 
+#ifdef AR_OSAL_USE_DYNAMIC_PD
+static int32_t ar_shmem_map_dynamic_pd(ar_shmem_info *info, bool_t map)
+{
+    int32_t i = 0, status = AR_EOK;
+
+    if (NULL == info) {
+        AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s: invalid shmem param", __func__);
+        status = AR_EBADPARAM;
+        return status;
+    }
+    for (i = 0; i < info->num_sys_id; ++i) {
+        if (info->sys_id[i].proc_type == DYNAMIC_PD) {
+
+            if (map) {
+                status = fastrpc_mmap(ar_dsp_domain_id[info->sys_id[i].proc_id],
+                                      info->ipa_lsw, info->vaddr, 0,
+                                      info->buf_size, FASTRPC_MAP_FD);
+            } else {
+                if (info->sys_id[i].is_active)
+                    status = fastrpc_munmap(ar_dsp_domain_id[info->sys_id[i].proc_id],
+                                            info->ipa_lsw, info->vaddr,
+                                            info->buf_size);
+                else
+                    AR_LOG_DEBUG(AR_OSAL_SHMEM_LOG_TAG,"%s: skip unmap as pd %d is down",
+                        __func__, info->sys_id[i].proc_id);
+            }
+            if (status) {
+                AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG, "%s:fastrpc_%s failed status %d",
+                __func__, map ? "mmap" : "munmap", status);
+                break;
+            }
+        }
+    }
+
+    if (status && map) {
+        while (i-- > 0) {
+            if (info->sys_id[i].proc_type == DYNAMIC_PD)
+                fastrpc_munmap(ar_dsp_domain_id[info->sys_id[i].proc_id],
+                               info->ipa_lsw, info->vaddr, info->buf_size);
+        }
+    }
+
+    return status;
+}
+#else
+static int32_t ar_shmem_map_dynamic_pd(ar_shmem_info *info, bool_t map)
+{
+    return AR_EOK;
+}
+#endif
+
+static int32_t ar_shmem_map_static_pd(ar_shmem_info *info)
+{
+    int32_t status = AR_EOK;
+    ar_shmem_handle_data_t *shmem_handle = NULL;
+
+    if (NULL == info) {
+        AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s: invalid shmem param", __func__);
+        status = AR_EBADPARAM;
+        goto end;
+    }
+    if (0 == info->pa_lsw && 0 == info->pa_msw) {
+        AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG, "Error: pa_lsw:0x%x|pa_msw:0x%x passed",
+        info->pa_lsw, info->pa_msw);
+        status = AR_EBADPARAM;
+        goto end;
+    }
+    shmem_handle = (ar_shmem_handle_data_t *)
+                    malloc(sizeof(ar_shmem_handle_data_t));
+    if (NULL == shmem_handle) {
+        AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG, "%s:malloc for shmem handle failed\n", __func__);
+        status = AR_ENOMEMORY;
+        goto end;
+    }
+
+    info->ipa_lsw = 0;
+    info->ipa_msw = 0;
+    info->metadata = 0;
+    info->index_type = AR_SHMEM_BUFFER_OFFSET;
+    info->mem_type = AR_SHMEM_PHYSICAL_MEMORY;
+
+    /*
+     *This api is called by clients when the clients already have allocated shared memory
+     *and now we just need to map it with DSP. On LX platforms what we recieve from clients
+     *is the ion fd, which is passed in the form of pa_lsw and pa_msw. Hence we extract the same
+     *and pass it on to the audio ion driver.
+     */
+    shmem_handle->heap_fd = (((int64_t)info->pa_msw << 32) | info->pa_lsw);
+
+    info->vaddr = mmap(0, info->buf_size,
+                  PROT_READ | PROT_WRITE, MAP_SHARED,
+                  shmem_handle->heap_fd, 0);
+    if (info->vaddr == MAP_FAILED) {
+        AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s: mmap failed \n", __func__);
+        status = AR_ENOMEMORY;
+        goto err2;
+    }
+
+    if ((uint64_t)info->vaddr % SHMEM_4K_ALIGNMENT) {
+        AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG, "Error: 4k alignment check failed vaddr(0x%pK)", info->vaddr);
+        info->vaddr = NULL;
+        status = AR_EUNEXPECTED;
+        goto err2;
+    }
+    info->metadata = (uint64_t)shmem_handle;
+    info->ipa_lsw = info->pa_lsw;
+    AR_LOG_VERBOSE(AR_OSAL_SHMEM_LOG_TAG," SHMEM: memory_type(0x%x)|index_type(0x%x)"
+                   "buf_size(0x%x)|vaddr(0x%pK)| ipa_lsw(0x%x)| status(0x%x) ",info->mem_type,
+                    info->index_type, info->buf_size, info->vaddr, info->ipa_lsw, status);
+    if (((info->flags) & (1 << AR_SHMEM_SHIFT_HW_ACCELERATOR_FLAG)) && pdata->dmabuf_cma_mem_enabled) {
+        if (pdata->armem_fd_cma) {
+            status = ioctl(pdata->armem_fd_cma, IOCTL_MAP_PHYS_ADDR, info->ipa_lsw);
+        } else {
+            status = AR_ENOTEXIST;
+            AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s:ION CMA memory does not exist  %d\n",
+                __func__, status);
+        }
+    } else
+        status = ioctl(pdata->armem_fd, IOCTL_MAP_PHYS_ADDR, info->ipa_lsw);
+    if (status) {
+        AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s:Physical address map failed status %d\n", __func__, status);
+        goto err2;
+    }
+    goto end;
+
+err2:
+    free(shmem_handle);
+end:
+    return status;
+}
+
+static int32_t ar_shmem_unmap_static_pd(ar_shmem_info *info)
+{
+    int32_t status = AR_EOK;
+    ar_shmem_handle_data_t *shmem_handle;
+
+    if (NULL == info) {
+        AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s: invalid shmem param", __func__);
+        status = AR_EBADPARAM;
+        goto end;
+    }
+    shmem_handle = (ar_shmem_handle_data_t *)(intptr_t)info->metadata;
+    if (NULL == shmem_handle) {
+       AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s: shmem_handle is NULL\n",
+           __func__);
+       status = AR_EBADPARAM;
+       goto end;
+    }
+
+    munmap(info->vaddr, info->buf_size);
+    if (shmem_handle->heap_fd) {
+        if (((info->flags) & (1 << AR_SHMEM_SHIFT_HW_ACCELERATOR_FLAG) && pdata->dmabuf_cma_mem_enabled)) {
+            if (pdata->armem_fd_cma) {
+                status = ioctl(pdata->armem_fd_cma, IOCTL_UNMAP_PHYS_ADDR, shmem_handle->heap_fd);
+            } else {
+                status = AR_ENOTEXIST;
+                AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s:ION CMA memory does not exist  %d\n",
+                    __func__, status);
+            }
+        } else
+            status = ioctl(pdata->armem_fd, IOCTL_UNMAP_PHYS_ADDR, shmem_handle->heap_fd);
+        if (status) {
+            AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s:unmap failed. status %d\n", __func__, status);
+        }
+        AR_LOG_VERBOSE(AR_OSAL_SHMEM_LOG_TAG,"%s:shmem heap fd %d\n", __func__, shmem_handle->heap_fd);
+        close(shmem_handle->heap_fd);
+    } else {
+        AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s Invalid dmabuf_fd \n", __func__);
+    }
+    if (shmem_handle)
+        free(shmem_handle);
+    info->metadata = 0;
+    info->vaddr = NULL;
 end:
     return status;
 }
@@ -94,7 +292,7 @@ end:
  * 0 -- Success
  *  Nonzero -- Failure
  */
-int32_t ar_shmem_init(void)
+int32_t ar_shmem_dsp_init(void)
 {
     int32_t status = AR_EOK;
     bool use_uncached_heap = false;
@@ -129,10 +327,19 @@ int32_t ar_shmem_init(void)
       goto end;
     }
 
-    pdata->armem_fd = open(AR_MEM_DRIVER_PATH, O_RDWR);
+    for (int j = 0; j < AR_FD_OPEN_NUM_RETRIES; ++j) {
+        pdata->armem_fd = open(AR_MEM_DRIVER_PATH, O_RDWR);
+        if (pdata->armem_fd < 0) {
+           AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG, "armem fd open(%s) failed with errno:%d, retries %d\n",
+                      AR_MEM_DRIVER_PATH, errno, j);
+           ar_osal_micro_sleep(AR_FD_OPEN_RETRY_US);
+        }
+        else {
+             break;
+        }
+    }
     if (pdata->armem_fd < 0) {
       status = AR_ENOTEXIST;
-      AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s armem fd open failed %s status %d\n", __func__, AR_MEM_DRIVER_PATH, status);
       close(pdata->dmabuf_fd);
       goto end;
     }
@@ -141,31 +348,52 @@ int32_t ar_shmem_init(void)
 #ifdef AR_OSAL_USE_CUTILS
     pdata->dmabuf_cma_mem_enabled =
         property_get_bool("vendor.audio.feature.dmabuf.cma.memory.enable", false);
-#endif
     if(pdata->dmabuf_cma_mem_enabled) {
         /*Check if dma_buf heap initialize the dmabuf_handle to invalid handle */
         pdata->dmabuf_fd_cma = open(DMABUF_SYS_HEAP_PATH_CMA, O_RDONLY | O_CLOEXEC);
-        if (pdata->dmabuf_fd_cma <= 0) {
-          AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s:dmabuf fd cma dev open failed errno:%d\n",
-            __func__, pdata->dmabuf_fd_cma);
-          status = AR_ENOTEXIST;
-          close(pdata->armem_fd);
-          close(pdata->dmabuf_fd);
-          goto end;
+        if (pdata->dmabuf_fd_cma < 0) {
+            AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s:dmabuf fd cma dev open failed errno:%d\n",
+              __func__, pdata->dmabuf_fd_cma);
+            status = AR_ENOTEXIST;
+            close(pdata->armem_fd);
+            close(pdata->dmabuf_fd);
+            free(pdata);
+            pdata = NULL;
+            goto end;
         }
 
         pdata->armem_fd_cma = open(AR_MEM_DRIVER_PATH_CMA, O_RDWR);
-        if (pdata->armem_fd_cma <= 0) {
-          status = AR_ENOTEXIST;
-          AR_LOG_ERR("%s armem fd cma open failed %s status %d\n",
-            __func__, AR_MEM_DRIVER_PATH_CMA, status);
-          close(pdata->armem_fd);
-          close(pdata->dmabuf_fd);
-          close(pdata->dmabuf_fd_cma);
-          goto end;
+        if (pdata->armem_fd_cma < 0) {
+            AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s:armem fd cma open failed %s\n",
+              __func__, AR_MEM_DRIVER_PATH_CMA);
+            status = AR_ENOTEXIST;
+            close(pdata->armem_fd);
+            close(pdata->dmabuf_fd);
+            close(pdata->dmabuf_fd_cma);
+            free(pdata);
+            pdata = NULL;
+            goto end;
         }
-
     }
+#else
+    pdata->dmabuf_cma_mem_enabled = false;
+    pdata->dmabuf_fd_cma = open(DMABUF_SYS_HEAP_PATH_CMA, O_RDONLY | O_CLOEXEC);
+    if (pdata->dmabuf_fd_cma < 0) {
+        AR_LOG_INFO(AR_OSAL_SHMEM_LOG_TAG,"%s:CMA dmabuf unavailable, continuing without CMA\n",
+          __func__);
+        pdata->dmabuf_fd_cma = -1;
+    } else {
+        pdata->armem_fd_cma = open(AR_MEM_DRIVER_PATH_CMA, O_RDWR);
+        if (pdata->armem_fd_cma < 0) {
+            AR_LOG_INFO(AR_OSAL_SHMEM_LOG_TAG,"%s:CMA mem driver unavailable, continuing without CMA\n",
+            __func__);
+            close(pdata->dmabuf_fd_cma);
+            pdata->dmabuf_fd_cma = -1;
+        } else {
+            pdata->dmabuf_cma_mem_enabled = true;
+        }
+    }
+#endif
 
  end:
     pthread_mutex_unlock(&ar_shmem_lock);
@@ -185,7 +413,7 @@ int32_t ar_shmem_init(void)
  *  Nonzero -- Failure
  *
  */
-int32_t ar_shmem_alloc(_Inout_ ar_shmem_info *info)
+int32_t ar_shmem_dsp_alloc(_Inout_ ar_shmem_info *info)
 {
     int32_t status = AR_EOK;
     ar_shmem_handle_data_t *shmem_handle = NULL;
@@ -232,21 +460,31 @@ int32_t ar_shmem_alloc(_Inout_ ar_shmem_info *info)
     heap_data.fd_flags = O_RDWR;
 
     if (((info->flags) & (1 << AR_SHMEM_SHIFT_HW_ACCELERATOR_FLAG)) && pdata->dmabuf_cma_mem_enabled) {
-        status = ioctl(pdata->dmabuf_fd_cma, DMA_HEAP_IOCTL_ALLOC, &heap_data);
-        if (status) {
-          AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s: DMA heap alloc failed, errno: %d\n",
-             __func__, status);
-          status = AR_ENOMEMORY;
-          goto end;
+        if (pdata->dmabuf_fd_cma >= 0) {
+            status = ioctl(pdata->dmabuf_fd_cma, DMA_HEAP_IOCTL_ALLOC, &heap_data);
+            if (status) {
+                AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s: DMA heap alloc failed, errno: %d\n",
+                   __func__, status);
+                status = AR_ENOMEMORY;
+                free(shmem_handle);
+                goto end;
+            }
+        } else {
+            AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s: CMA dmabuf fd unavailable, cannot alloc CMA memory\n",
+                  __func__);
+                status = AR_ENOTEXIST;
+                free(shmem_handle);
+                goto end;
         }
     }
     else {
         status = ioctl(pdata->dmabuf_fd, DMA_HEAP_IOCTL_ALLOC, &heap_data);
         if (status) {
-          AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s: DMA heap alloc failed, errno: %d\n",
-             __func__, status);
-          status = AR_ENOMEMORY;
-          goto end;
+            AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s: DMA heap alloc failed, errno: %d\n",
+               __func__, status);
+            status = AR_ENOMEMORY;
+            free(shmem_handle);
+            goto end;
         }
     }
 
@@ -296,6 +534,12 @@ int32_t ar_shmem_alloc(_Inout_ ar_shmem_info *info)
         __func__, status);
       goto err2;
     }
+    status = ar_shmem_map_dynamic_pd(info, true);
+    if (status) {
+      AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG, "%s:dynamic pd map failed status %d\n",
+        __func__, status);
+      goto err2;
+    }
     goto end;
 
  err2:
@@ -320,7 +564,7 @@ int32_t ar_shmem_alloc(_Inout_ ar_shmem_info *info)
  *  0 -- Success
  *  Nonzero -- Failure
  */
-int32_t ar_shmem_free(_In_ ar_shmem_info *info)
+int32_t ar_shmem_dsp_free(_In_ ar_shmem_info *info)
 {
     int32_t status = AR_EOK;
     ar_shmem_handle_data_t *shmem_handle = NULL;
@@ -351,6 +595,11 @@ int32_t ar_shmem_free(_In_ ar_shmem_info *info)
       AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG, "Error: invalid sys_id(%d) passed", info->sys_id);
       status = AR_EBADPARAM;
       goto end;
+    }
+
+    status = ar_shmem_map_dynamic_pd(info, false);
+    if (status) {
+        AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG, "%s:dynamic pd unmap failed. status %d\n", __func__, status);
     }
 
     shmem_handle = (ar_shmem_handle_data_t *)(intptr_t)info->metadata;
@@ -422,10 +671,10 @@ int32_t ar_shmem_free(_In_ ar_shmem_info *info)
  * Nonzero -- Failure
  *
  */
-int32_t ar_shmem_map(_Inout_ ar_shmem_info *info)
+int32_t ar_shmem_dsp_map(_Inout_ ar_shmem_info *info)
 {
-    int32_t status = AR_EOK;
-    ar_shmem_handle_data_t *shmem_handle = NULL;
+    int32_t status = AR_EOK, i = 0;
+    bool_t static_pd = false;
 
     pthread_mutex_lock(&ar_shmem_lock);
     if (NULL == pdata) {
@@ -440,79 +689,30 @@ int32_t ar_shmem_map(_Inout_ ar_shmem_info *info)
         goto end;
     }
 
-    if (0 == info->pa_lsw && 0 == info->pa_msw) {
-        AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"Error: pa_lsw:0x%x|pa_msw:0x%x passed",
-                   info->pa_lsw, info->pa_msw);
-        status = AR_EBADPARAM;
-        goto end;
-    }
-
     if (AR_EOK != ar_shmem_validate_sys_id(info->num_sys_id,info->sys_id)) {
         AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG, "Error: invalid sys_id(%d) passed", info->sys_id);
         status = AR_EBADPARAM;
         goto end;
     }
 
-    shmem_handle = (ar_shmem_handle_data_t *)
-                    malloc(sizeof(ar_shmem_handle_data_t));
-    if (NULL == shmem_handle) {
-        AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s:malloc for shmem handle failed\n", __func__);
-        status = AR_ENOMEMORY;
-        goto end;
-    }
-
-    info->ipa_lsw = 0;
-    info->ipa_msw = 0;
-    info->metadata = 0;
-    info->index_type = AR_SHMEM_BUFFER_OFFSET;
-    info->mem_type = AR_SHMEM_PHYSICAL_MEMORY;
-
-    /*
-     *This api is called by clients when the clients already have allocated shared memory
-     *and now we just need to map it with DSP. On LX platforms what we recieve from clients
-     *is the ion fd, which is passed in the form of pa_lsw and pa_msw. Hence we extract the same
-     *and pass it on to the audio ion driver.
-     */
-    shmem_handle->heap_fd = (((int64_t)info->pa_msw << 32) | info->pa_lsw);
-
-    info->vaddr = mmap(0, info->buf_size,
-                  PROT_READ | PROT_WRITE, MAP_SHARED,
-                  shmem_handle->heap_fd, 0);
-    if (info->vaddr == MAP_FAILED) {
-        AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s: mmap failed \n", __func__);
-        status = AR_ENOMEMORY;
-        goto err2;
-    }
-
-    if ((uint64_t)info->vaddr % SHMEM_4K_ALIGNMENT) {
-        AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG, "Error: 4k alignment check failed vaddr(0x%pK)", info->vaddr);
-        info->vaddr = NULL;
-        status = AR_EUNEXPECTED;
-        goto err2;
-    }
-    info->metadata = (uint64_t)shmem_handle;
-    info->ipa_lsw = info->pa_lsw;
-    AR_LOG_VERBOSE(AR_OSAL_SHMEM_LOG_TAG," SHMEM: memory_type(0x%x)|index_type(0x%x)"
-                   "buf_size(0x%x)|vaddr(0x%pK)| ipa_lsw(0x%x)| status(0x%x) ",info->mem_type,
-                    info->index_type, info->buf_size, info->vaddr, info->ipa_lsw, status);
-    if (((info->flags) & (1 << AR_SHMEM_SHIFT_HW_ACCELERATOR_FLAG)) && pdata->dmabuf_cma_mem_enabled) {
-        if (pdata->armem_fd_cma) {
-            status = ioctl(pdata->armem_fd_cma, IOCTL_MAP_PHYS_ADDR, info->ipa_lsw);
-        } else {
-            status = AR_ENOTEXIST;
-            AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s:ION CMA memory does not exist  %d\n",
-                __func__, status);
+    for (i = 0; i < info->num_sys_id; ++i) {
+        if (info->sys_id[i].proc_type == STATIC_PD) {
+            static_pd = true;
+            break;
         }
-    } else
-        status = ioctl(pdata->armem_fd, IOCTL_MAP_PHYS_ADDR, info->ipa_lsw);
-    if (status) {
-        AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s:Physical address map failed status %d\n", __func__, status);
-        goto err2;
     }
-    goto end;
-
-err2:
-    free(shmem_handle);
+    if (static_pd) {
+        status = ar_shmem_map_static_pd(info);
+        if (status) {
+            AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG, "static pd map failed with error %d", status);
+            goto end;
+        }
+    }
+    status = ar_shmem_map_dynamic_pd(info, true);
+    if (status) {
+        ar_shmem_unmap_static_pd(info);
+        AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG, "dynamic pd map failed with error %d", status);
+    }
 end:
     pthread_mutex_unlock(&ar_shmem_lock);
     return status;
@@ -535,10 +735,11 @@ end:
  * Nonzero -- Failure
  *
  */
-int32_t ar_shmem_unmap(_In_ ar_shmem_info *info)
+int32_t ar_shmem_dsp_unmap(_In_ ar_shmem_info *info)
 {
-    int32_t status = AR_EOK;
-    ar_shmem_handle_data_t *shmem_handle;
+    int32_t status = AR_EOK, i = 0;
+    bool_t static_pd = false;
+
     pthread_mutex_lock(&ar_shmem_lock);
     if (NULL == pdata) {
         AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s:not in init state\n", __func__);
@@ -565,38 +766,21 @@ int32_t ar_shmem_unmap(_In_ ar_shmem_info *info)
         goto end;
     }
 
-    shmem_handle = (ar_shmem_handle_data_t *)(intptr_t)info->metadata;
-    if (NULL == shmem_handle) {
-       AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s: shmem_handle is NULL\n",
-           __func__);
-       status = AR_EBADPARAM;
-       goto end;
+    status = ar_shmem_map_dynamic_pd(info, false);
+    if (status) {
+        AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG, "%s: dynamic pd unmap failed", __func__);
     }
-
-    munmap(info->vaddr, info->buf_size);
-    if (shmem_handle->heap_fd) {
-        if (((info->flags) & (1 << AR_SHMEM_SHIFT_HW_ACCELERATOR_FLAG) && pdata->dmabuf_cma_mem_enabled)) {
-            if (pdata->armem_fd_cma) {
-                status = ioctl(pdata->armem_fd_cma, IOCTL_UNMAP_PHYS_ADDR, shmem_handle->heap_fd);
-            } else {
-                status = AR_ENOTEXIST;
-                AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s:ION CMA memory does not exist  %d\n",
-                    __func__, status);
-            }
-        } else
-            status = ioctl(pdata->armem_fd, IOCTL_UNMAP_PHYS_ADDR, shmem_handle->heap_fd);
-        if (status) {
-            AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s:unmap failed. status %d\n", __func__, status);
+    for (i = 0; i < info->num_sys_id; ++i) {
+        if (info->sys_id[i].proc_type == STATIC_PD) {
+            static_pd = true;
+            break;
         }
-        AR_LOG_VERBOSE(AR_OSAL_SHMEM_LOG_TAG,"%s:shmem heap fd %d\n", __func__, shmem_handle->heap_fd);
-        close(shmem_handle->heap_fd);
-    } else {
-        AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s Invalid dmabuf_fd \n", __func__);
     }
-    if (shmem_handle)
-        free(shmem_handle);
-    info->metadata = 0;
-    info->vaddr = NULL;
+    if (static_pd) {
+        status = ar_shmem_unmap_static_pd(info);
+        if (status)
+            AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG, "%s: static pd unmap failed", __func__);
+    }
 end:
     pthread_mutex_unlock(&ar_shmem_lock);
     return status;
@@ -611,7 +795,7 @@ end:
  *  0 -- Success
  *  Nonzero -- Failure
  */
-int32_t ar_shmem_hyp_assign_phys(ar_shmem_hyp_assign_phys_info *info)
+int32_t ar_shmem_dsp_hyp_assign_phys(ar_shmem_hyp_assign_phys_info *info)
 {
     int32_t status = AR_EOK;
     uint32_t shm_addr_lsw = 0;
@@ -645,10 +829,17 @@ int32_t ar_shmem_hyp_assign_phys(ar_shmem_hyp_assign_phys_info *info)
                       shmem_handle->dma_sync_flag = false;
                     }
                     AR_LOG_VERBOSE(AR_OSAL_SHMEM_LOG_TAG,"%s:IOCTL_MAP_HYP_ASSIGN\n", __func__);
-                    status = ioctl(pdata->armem_fd_cma, IOCTL_MAP_HYP_ASSIGN, shm_addr_lsw);
-                    if (status) {
-                        AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s:hyp_assign failed. status %d\n",
-                         __func__, status);
+                    if (pdata->armem_fd_cma >= 0) {
+                        status = ioctl(pdata->armem_fd_cma, IOCTL_MAP_HYP_ASSIGN, shm_addr_lsw);
+                        if (status) {
+                            AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s:hyp_assign failed. status %d\n",
+                             __func__, status);
+                        }
+                    } else {
+                        AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s:armem_fd_cma unavailable for hyp_assign\n",
+                            __func__);
+                        status = AR_ENOTEXIST;
+                        goto end;
                     }
                 } else {
                     AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s:invalid params handle \n", __func__);
@@ -657,11 +848,16 @@ int32_t ar_shmem_hyp_assign_phys(ar_shmem_hyp_assign_phys_info *info)
                 }
             } else {
                 AR_LOG_VERBOSE(AR_OSAL_SHMEM_LOG_TAG,"%s:IOCTL_UNMAP_HYP_ASSIGN\n", __func__);
-                status = ioctl(pdata->armem_fd_cma, IOCTL_UNMAP_HYP_ASSIGN, shm_addr_lsw);
-
-                if (status) {
-                     AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s:unmap_hyp_assign failed. status %d\n",
-                         __func__, status);
+                if (pdata->armem_fd_cma >= 0) {
+                    status = ioctl(pdata->armem_fd_cma, IOCTL_UNMAP_HYP_ASSIGN, shm_addr_lsw);
+                    if (status) {
+                         AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s:unmap_hyp_assign failed. status %d\n",
+                             __func__, status);
+                    }
+                } else {
+                    AR_LOG_ERR(AR_OSAL_SHMEM_LOG_TAG,"%s:armem_fd_cma unavailable for unmap_hyp_assign\n",
+                        __func__);
+                    status = AR_ENOTEXIST;
                 }
             }
          }
@@ -678,7 +874,7 @@ end:
  *  0 -- Success
  *  Nonzero -- Failure
  */
-int32_t ar_shmem_deinit(void)
+int32_t ar_shmem_dsp_deinit(void)
 {
 
   pthread_mutex_lock(&ar_shmem_lock);

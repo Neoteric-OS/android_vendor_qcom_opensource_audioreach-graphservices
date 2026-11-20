@@ -8,7 +8,7 @@
 *     definitions necessary for ATS to handle requests that operate ACDB SW
 *
 * \copyright
-*     Copyright (c) Qualcomm Innovation Center, Inc. All rights reserved.
+*     Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
 *     SPDX-License-Identifier: BSD-3-Clause
 *
 *==============================================================================
@@ -65,7 +65,7 @@ int32_t fts_open_file(
 
     ATS_DBG("Opening/creating %s...", req.file_path);
 
-    //Search for avalible file slot
+    //Search for available file slot
     for (; findex < FTS_MAX_FILE_COUNT; findex++)
         if (fts_file_table->fhandle[findex] == NULL)
             break;
@@ -87,6 +87,7 @@ int32_t fts_open_file(
     if (AR_FAILED(status))
     {
         ATS_ERR("Error(%d), FileAccessType(%d): Failed to open/create %s", status, req.access, req.file_path);
+        ACDB_FREE(fts_file_table->fhandle[findex]);
         return status;
     }
 

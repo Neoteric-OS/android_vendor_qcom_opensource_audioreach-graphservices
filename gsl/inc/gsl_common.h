@@ -7,7 +7,7 @@
  *      Common header file used by GSL modules.
  *
  * \copyright
- *  Copyright (c) Qualcomm Innovation Center, Inc. All rights reserved.
+ *  Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *  SPDX-License-Identifier: BSD-3-Clause
  */
 
@@ -21,6 +21,7 @@
 #include "ar_osal_servreg.h"
 #include "gpr_ids_domains.h"
 #include "gpr_packet.h"
+#include "gsl_spf_timeout.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -30,7 +31,11 @@
 #define GSL_ALIGN_8BYTE(x) (((x) + 7) & (~7))
 #define GSL_PADDING_8BYTE_ALIGN(x)  ((((x) + 7) & 7) ^ 7)
 #define GSL_GPR_SRC_DOMAIN_ID GPR_IDS_DOMAIN_ID_APPS_V
+#ifdef MDSP_PROC
+#define GSL_GPR_DST_DOMAIN_ID GPR_IDS_DOMAIN_ID_MODEM_V
+#else
 #define GSL_GPR_DST_DOMAIN_ID GPR_IDS_DOMAIN_ID_ADSP_V
+#endif
 #define GSL_EXT_MEM_HDL_NOT_ALLOCD 0
 
 #define DEBUG_TOKEN_MASK 0xFFFFF000
@@ -39,32 +44,6 @@
 #define GET_DEBUG_TOKEN(x, value) (value) = ((x) & DEBUG_TOKEN_MASK) \
 	>> DEBUG_TOKEN_SHIFT
 #define REMOVE_DEBUG_TOKEN(x) (x) = ((x) & ~DEBUG_TOKEN_MASK)
-
-#if !defined(__GSL_GPR_STUB__) && (defined(_WIN32) || defined(_WIN64)) \
-	&& !defined(_KERNEL_MODE) && defined(ARSPF_WIN_PORTING)
-	/** WIN32/64 - SPF PORTING Timeout can be less than COSIM mode */
-#define GSL_SPF_TIMEOUT_MS  ((3)*(1000))
-#define GSL_GRAPH_OPEN_TIMEOUT_MS  ((3)*(1000))
-#define GSL_SPF_READ_WRITE_TIMEOUT_MS  ((3)*(1000))
-#elif !defined(__GSL_GPR_STUB__) && (defined(_WIN32) || defined(_WIN64)) \
-	&& !defined(_KERNEL_MODE)
-/** WIN32/64 COSIM Mode requires longer delays(30 min) */
-#define GSL_SPF_TIMEOUT_MS  ((1800)*(1000))
-#define GSL_GRAPH_OPEN_TIMEOUT_MS  ((1800)*(1000))
-#define GSL_SPF_READ_WRITE_TIMEOUT_MS  ((3600)*(1000))
-#elif defined(__GSL_GPR_STUB__)
-/**
- * unit-testing with GPR stub we increase the timeout due to APM sim globally
- * serializeng all SPF commands which causes more delays in multi-session tests
- */
-#define GSL_SPF_TIMEOUT_MS  (2000)
-#define GSL_GRAPH_OPEN_TIMEOUT_MS  (2000)
-#define GSL_SPF_READ_WRITE_TIMEOUT_MS  (60000LL) /* 1 min */
-#else
-#define GSL_SPF_TIMEOUT_MS  (1000)
-#define GSL_GRAPH_OPEN_TIMEOUT_MS  (1000)
-#define GSL_SPF_READ_WRITE_TIMEOUT_MS  (1000)
-#endif
 
 #define GSL_GET_SPF_SS_MASK(OSAL_SYS_ID) (1<<(OSAL_SYS_ID - 1))
 #define GSL_TEST_SPF_SS_BIT(SPF_SS_MASK, OSAL_SYS_ID) \
@@ -263,6 +242,8 @@ struct gsl_signal {
 	int32_t status;
 	/** gpr packet pointer */
 	void *gpr_packet;
+	/** gpr expected packet token */
+	uint32_t expected_packet_token;
 };
 
 enum gsl_graph_sig_event_mask {
@@ -293,7 +274,8 @@ int32_t gsl_send_spf_cmd(struct gpr_packet_t **packet,
 	struct gsl_signal *sig_p, gpr_packet_t **rsp_pkt);
 int32_t gsl_send_spf_cmd_wait_for_basic_rsp(gpr_packet_t **packet,
 	struct gsl_signal *sig_p);
-
+int32_t gsl_send_spf_satellite_info(uint32_t proc_id,
+	uint32_t supported_ss_mask, uint32_t src_port, struct gsl_signal *sig_p);
 
 /** memory allocation helper functions */
 static inline void *gsl_mem_zalloc(size_t size)

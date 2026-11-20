@@ -8,7 +8,7 @@
 *     requests from ATS clients and retrieves the response from ACDB.
 *
 * \copyright
-*     Copyright (c) Qualcomm Innovation Center, Inc. All rights reserved.
+*     Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
 *     SPDX-License-Identifier: BSD-3-Clause
 *
 *==============================================================================
@@ -86,7 +86,7 @@ int32_t AtsCmdGetHeapEntryInfo(
 
     if (AR_FAILED(status))
     {
-        ATS_ERR("Error[%d]: Faild to get information from the ACDB heap",
+        ATS_ERR("Error[%d]: Failed to get information from the ACDB heap",
             status);
     }
     return status;
@@ -110,7 +110,7 @@ int32_t AtsCmdGetHeapEntryData(acdb_handle_t acdb_handle,
     status = DataProcGetHeapData(key_vector, rsp, &rsp_offset);
     if (AR_FAILED(status))
     {
-        ATS_ERR("Faild to get heap data for key vector");
+        ATS_ERR("Failed to get heap data for key vector");
     }
 
     rsp->bytes_filled = rsp_offset;
